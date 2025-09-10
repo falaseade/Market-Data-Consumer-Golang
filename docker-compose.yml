@@ -9,6 +9,5 @@ services:
       - nats_jetstream_data:/data
     container_name: nats-server
     restart: unless-stopped
-
-volumes:
-  nats_jetstream_data:
+# volumes:
+#   nats_jetstream_data:
