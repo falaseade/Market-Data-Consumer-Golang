@@ -1,0 +1,14 @@
+services:
+  nats:
+    image: nats:latest
+    ports:
+      - '4222:4222'
+      - '8222:8222'
+    command: '-js -sd /data'
+    volumes:
+      - nats_jetstream_data:/data
+    container_name: nats-server
+    restart: unless-stopped
+
+volumes:
+  nats_jetstream_data:
