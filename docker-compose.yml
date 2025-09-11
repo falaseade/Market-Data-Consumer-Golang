@@ -9,5 +9,15 @@ services:
       - nats_jetstream_data:/data
     container_name: nats-server
     restart: unless-stopped
-# volumes:
-#   nats_jetstream_data:
+
+  app:
+    build: .
+    depends_on: ['nats']
+    ports:
+      - '8080:8080'
+    restart: unless-stopped
+    environment:
+      - NATS_URL=nats://nats:4222
+
+volumes:
+  nats_jetstream_data:
