@@ -6,8 +6,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
 	"time"
+
+	"github.com/falaseade/Market-Data-Consumer-Golang/config"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -16,44 +17,39 @@ import (
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
 	defer cancel()
-	webhookUrl := flag.String("url", "wss://stream.binance.com:9443/ws/btcusdt@trade", "Websocket URL used")
-	flag.Parse()
 
-	natsUrl := os.Getenv("NATS_URL")
-
-	nc, natsErr := nats.Connect(natsUrl)
-	if natsErr != nil{
-		log.Fatal("Error connection to nats", natsErr)
+	cfg, configError := config.SetupConfig()
+	if configError != nil {
+		log.Fatalf("Failed to load configuration: %v", configError)
 	}
 
+	webhookUrl := flag.String("url", cfg.WebhookURL, "Websocket URL used")
+	flag.Parse()
+
+	nc, natsErr := nats.Connect(cfg.NatsUrl)
+	if natsErr != nil{
+		log.Fatalf("Error connecting to nats: %v", natsErr)
+	}
+	
 	defer nc.Close()
 
 	js, jetstreamErr := jetstream.New(nc)
 	if jetstreamErr != nil {
-		log.Fatal("Error with JetStream", jetstreamErr)
+		log.Fatalf("Error with JetStream: %v", jetstreamErr)
 	}
 
-	streamName := os.Getenv("JS_STREAM_NAME")
-	streamSubjects := os.Getenv("JS_STREAM_SUBJECTS")
-	streamRetentionTime, retentionError := strconv.Atoi(os.Getenv("JS_RETENTION_TIME"))
-	if retentionError != nil {
-		streamRetentionTime = 24
+	jetstreamCfg, jetstreamCfgError := config.SetupJetstreamConfig()
+	if jetstreamCfgError != nil {
+		log.Fatalf("Failed to load jetstream configuration: %v", jetstreamCfgError)
 	}
 
-	cfg :=  jetstream.StreamConfig{
-		Name: streamName,
-		Subjects: []string{streamSubjects},
-		MaxAge:  time.Duration(streamRetentionTime) * time.Hour,
-
-	}
-
-	_, streamError := js.CreateStream(ctx, cfg)
+	_, streamError := js.CreateStream(ctx, jetstreamCfg)
 	if streamError != nil {
-		log.Fatal("Stream Error!!!")
+		log.Fatalf("Failed to create JetStream stream: %v", streamError)
 	}
 
 	
-go StartClient(*webhookUrl)
+go StartClient(ctx, *webhookUrl)
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
