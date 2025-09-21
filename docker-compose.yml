@@ -17,6 +17,7 @@ services:
       - '8080:8080'
     restart: unless-stopped
     environment:
+      - WEBHOOK_URL=${WEBHOOK_URL}
       - NATS_URL=${NATS_URL}
       - JS_STREAM_NAME=${JS_STREAM_NAME}
       - JS_STREAM_SUBJECTS=${JS_STREAM_SUBJECTS}
