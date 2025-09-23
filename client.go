@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"sync"
 
 	"github.com/falaseade/Market-Data-Consumer-Golang/publisher"
 	"github.com/gorilla/websocket"
@@ -14,11 +15,15 @@ var dialer = websocket.Dialer{
 }
 
 func StartClient(ctx context.Context, url string, pub publisher.Publisher) {
+	var clientWaitGroup sync.WaitGroup
 	log.Println("WebSocket client connecting to:", url)
 	natsQueue := make(chan []byte, 100)
 	defer close(natsQueue)
 
+	clientWaitGroup.Add(1)
+
 	go func(){
+		defer clientWaitGroup.Done()
 		for message := range natsQueue {
 			if err := pub.Publish(ctx, message); err != nil {
 				log.Printf("Error publishing message: %v", err)
@@ -28,6 +33,8 @@ func StartClient(ctx context.Context, url string, pub publisher.Publisher) {
 	conn, _, err := dialer.DialContext(ctx, url, nil)
 	if err != nil {
 		log.Printf("Failed to dial websocket: %v", err)
+		close(natsQueue)
+		clientWaitGroup.Wait()
 		return
 	}
 	defer conn.Close()
@@ -57,11 +64,14 @@ for {
                 log.Println("Error during websocket close:", err)
             }
 			close(natsQueue)
+			clientWaitGroup.Wait()
             return
 
 			case msg, ok := <-msgChan:
             if !ok {
 				log.Println("Message channel closed.")
+				close(natsQueue)
+				clientWaitGroup.Wait()
 				return
 			}
 
@@ -72,6 +82,8 @@ for {
                 log.Printf("Error reading from websocket: %v", err)
             }
             log.Println("WebSocket connection closed.")
+			close(natsQueue)
+			clientWaitGroup.Wait()
             return
         }
     }
