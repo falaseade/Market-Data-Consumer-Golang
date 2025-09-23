@@ -5,8 +5,9 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /main .
 
-FROM alpine:latest
-WORKDIR /root/
+FROM alpine:3.20
+RUN apk --no-cache add ca-certificates
+WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 COPY --from=builder /main .
