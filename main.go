@@ -9,14 +9,16 @@ import (
 	"time"
 
 	"github.com/falaseade/Market-Data-Consumer-Golang/config"
+	"github.com/falaseade/Market-Data-Consumer-Golang/publisher"
+	"github.com/falaseade/Market-Data-Consumer-Golang/transformer"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	
 
 	cfg, configError := config.SetupConfig()
 	if configError != nil {
@@ -48,8 +50,11 @@ func main() {
 		log.Fatalf("Failed to create JetStream stream: %v", streamError)
 	}
 
+	t := transformer.NewBinanceTransformer()
+	pub := publisher.NewNatsPublisher(js, t)
+
 	
-go StartClient(ctx, *webhookUrl)
+go StartClient(ctx, *webhookUrl, pub)
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
@@ -58,5 +63,8 @@ go StartClient(ctx, *webhookUrl)
 	
 	<-interrupt
 
-	log.Println("Interrupt signal received, shutting down.")
+	log.Println("Shutdown signal received, telling services to stop.")
+    cancel()
+	time.Sleep(1 * time.Second)
+    log.Println("Application exited.")
 }
