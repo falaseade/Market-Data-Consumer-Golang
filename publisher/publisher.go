@@ -44,6 +44,6 @@ func (p *NatsPublisher) Publish(ctx context.Context, payload []byte) error {
 		return fmt.Errorf("failed to publish to NATS: %w", err)
 	}
 
-	log.Printf("Published to %s", subject)
+	log.Printf("Published to %s, sent %s", subject, msgToSend)
 	return nil
 }
