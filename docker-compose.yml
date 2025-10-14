@@ -25,5 +25,22 @@ services:
       - STREAM_SUBJECT=${STREAM_SUBJECT}
       - STREAM_BUFFER_SIZE=${STREAM_BUFFER_SIZE}
 
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      - POSTGRES_USER=tsdb
+      - POSTGRES_PASSWORD=tsdb
+      - POSTGRES_DB=trade_data
+    ports:
+      - '5432:5432'
+    volumes:
+      - tsdb_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tsdb -d trade_data']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
 volumes:
   nats_jetstream_data:
+  tsdb_db:
