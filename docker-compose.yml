@@ -24,6 +24,10 @@ services:
       - JS_RETENTION_HOURS=${JS_RETENTION_HOURS}
       - STREAM_SUBJECT=${STREAM_SUBJECT}
       - STREAM_BUFFER_SIZE=${STREAM_BUFFER_SIZE}
+      - SOURCE=${SOURCE}
+      - ASSET_CLASS=${ASSET_CLASS}
+      - EVENT_TYPE=${EVENT_TYPE}
+      - VERSION=${VERSION}
 
   timescaledb:
     image: timescale/timescaledb:latest-pg16
