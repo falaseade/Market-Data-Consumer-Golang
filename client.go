@@ -9,20 +9,22 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var dialer = websocket.Dialer{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
+var dialer websocket.Dialer
 
 func StartClient(ctx context.Context, url string, pub publisher.Publisher) {
 	var clientWaitGroup sync.WaitGroup
 	log.Println("WebSocket client connecting to:", url)
 	natsQueue := make(chan []byte, 100)
-	defer close(natsQueue)
+
+	var once sync.Once
+	closeQueue := func() {
+		once.Do(func() {
+			close(natsQueue)
+		})
+	}
 
 	clientWaitGroup.Add(1)
-
-	go func(){
+	go func() {
 		defer clientWaitGroup.Done()
 		for message := range natsQueue {
 			if err := pub.Publish(ctx, message); err != nil {
@@ -30,10 +32,11 @@ func StartClient(ctx context.Context, url string, pub publisher.Publisher) {
 			}
 		}
 	}()
+
 	conn, _, err := dialer.DialContext(ctx, url, nil)
 	if err != nil {
 		log.Printf("Failed to dial websocket: %v", err)
-		close(natsQueue)
+		closeQueue()
 		clientWaitGroup.Wait()
 		return
 	}
@@ -41,50 +44,47 @@ func StartClient(ctx context.Context, url string, pub publisher.Publisher) {
 	log.Println("WebSocket client connected.")
 
 	msgChan := make(chan []byte)
-    errChan := make(chan error, 1)
+	errChan := make(chan error, 1)
 
-    go func() {
+	go func() {
 		defer close(msgChan)
-        defer close(errChan)
-        for {
-            _, p, err := conn.ReadMessage()
-            if err != nil {
-                errChan <- err
-                return
-            }
-            msgChan <- p
-        }
-    }()
-for {
-        select {
-			case <-ctx.Done():
-            log.Println("Shutdown signal received, closing WebSocket client.")
-            err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-            if err != nil {
-                log.Println("Error during websocket close:", err)
-            }
-			close(natsQueue)
-			clientWaitGroup.Wait()
-            return
+		defer close(errChan)
+		for {
+			_, p, err := conn.ReadMessage()
+			if err != nil {
+				errChan <- err
+				return
+			}
+			msgChan <- p
+		}
+	}()
 
-			case msg, ok := <-msgChan:
-            if !ok {
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Shutdown signal received, closing WebSocket client.")
+			_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			closeQueue()
+			clientWaitGroup.Wait()
+			return
+
+		case msg, ok := <-msgChan:
+			if !ok {
 				log.Println("Message channel closed.")
-				close(natsQueue)
+				closeQueue()
 				clientWaitGroup.Wait()
 				return
 			}
-
 			natsQueue <- msg
 
-			case err := <- errChan:
-            if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-                log.Printf("Error reading from websocket: %v", err)
-            }
-            log.Println("WebSocket connection closed.")
-			close(natsQueue)
+		case err := <-errChan:
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				log.Printf("Error reading from websocket: %v", err)
+			}
+			log.Println("WebSocket connection closed.")
+			closeQueue()
 			clientWaitGroup.Wait()
-            return
-        }
-    }
+			return
+		}
+	}
 }
