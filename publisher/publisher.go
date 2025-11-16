@@ -16,34 +16,58 @@ type Publisher interface {
 }
 
 type NatsPublisher struct {
-	js jetstream.JetStream
+	js          jetstream.JetStream
 	transformer transformer.Transformer
 }
 
-func NewNatsPublisher(js jetstream.JetStream, transformer transformer.Transformer) *NatsPublisher {
-	return &NatsPublisher{
-		js: js,
-		transformer: transformer,
+func NewNatsPublisher(js jetstream.JetStream, t transformer.Transformer) (*NatsPublisher, error) {
+	if js == nil {
+		return nil, fmt.Errorf("jetstream instance is nil")
 	}
+	if t == nil {
+		return nil, fmt.Errorf("transformer is nil")
+	}
+	return &NatsPublisher{
+		js:          js,
+		transformer: t,
+	}, nil
 }
 
 func (p *NatsPublisher) Publish(ctx context.Context, payload []byte) error {
-	canonicalTick, err := p.transformer.Transform(payload)
-	if err != nil {
-		return fmt.Errorf("failed to transform message: %w", err)
+	if p == nil {
+		return fmt.Errorf("publisher is nil")
+	}
+	if p.transformer == nil {
+		return fmt.Errorf("transformer is nil")
+	}
+	if p.js == nil {
+		return fmt.Errorf("jetstream client is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	msgToSend, err := json.Marshal(canonicalTick)
+	evt, err := p.transformer.Transform(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal canonical tick: %w", err)
+		return fmt.Errorf("transform error: %w", err)
 	}
 
-	subject := os.Getenv("STREAM_SUBJECT") + canonicalTick.Symbol
-	_, err = p.js.Publish(ctx, subject, msgToSend)
-	if err != nil {
-		return fmt.Errorf("failed to publish to NATS: %w", err)
+	if evt == nil {
+		return nil
 	}
 
-	log.Printf("Published to %s, sent %s", subject, msgToSend)
+	subject := os.Getenv("STREAM_SUBJECT") + evt.Symbol
+
+	msg, err := json.Marshal(evt)
+	if err != nil {
+		return fmt.Errorf("marshal canonical event: %w", err)
+	}
+
+	_, err = p.js.Publish(ctx, subject, msg, jetstream.WithMsgID(evt.MsgID))
+	if err != nil {
+		return fmt.Errorf("nats publish error: %w", err)
+	}
+
+	log.Printf("Published message to subject=%s msg_id=%s", subject, evt.MsgID)
 	return nil
 }
