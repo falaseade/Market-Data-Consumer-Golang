@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/falaseade/Market-Data-Consumer-Golang/config"
@@ -17,54 +20,80 @@ import (
 )
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	
-
-	cfg, configError := config.SetupConfig()
-	if configError != nil {
-		log.Fatalf("Failed to load configuration: %v", configError)
+	cfg, err := config.SetupConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+	if len(cfg.Symbols) == 0 {
+		log.Fatalf("Config error: no symbols configured")
 	}
 
-	webhookUrl := flag.String("url", cfg.WebhookURL, "Websocket URL used")
+	streamURL := cfg.WebhookURL + buildStreamSuffix(cfg.Symbols)
+	fmt.Println(streamURL)
+	webhookURLFlag := flag.String("url", streamURL, "WebSocket URL used")
 	flag.Parse()
+	webhookURL := *webhookURLFlag
 
-	nc, natsErr := nats.Connect(cfg.NatsUrl)
-	if natsErr != nil{
-		log.Fatalf("Error connecting to nats: %v", natsErr)
+	log.Printf("Using WebSocket URL: %s", webhookURL)
+	log.Printf("NATS URL: %s", cfg.NatsUrl)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	nc, err := nats.Connect(cfg.NatsUrl)
+	if err != nil {
+		log.Fatalf("Error connecting to NATS: %v", err)
 	}
-	
-	defer nc.Close()
+	defer func() {
+		log.Println("Draining NATS connection...")
+		nc.Drain()
+	}()
 
-	js, jetstreamErr := jetstream.New(nc)
-	if jetstreamErr != nil {
-		log.Fatalf("Error with JetStream: %v", jetstreamErr)
+	js, err := jetstream.New(nc)
+	if err != nil {
+		log.Fatalf("Error creating JetStream context: %v", err)
 	}
 
-	jetstreamCfg, jetstreamCfgError := config.SetupJetstreamConfig()
-	if jetstreamCfgError != nil {
-		log.Fatalf("Failed to load jetstream configuration: %v", jetstreamCfgError)
+	jsCfg, err := config.SetupJetstreamConfig()
+	if err != nil {
+		log.Fatalf("Failed to load JetStream configuration: %v", err)
+	}
+	log.Printf("Ensuring JetStream stream %q exists", jsCfg.Name)
+
+	if _, err := js.Stream(ctx, jsCfg.Name); err != nil {
+		log.Printf("Stream %q not found, creating it...", jsCfg.Name)
+		if _, err := js.CreateStream(ctx, jsCfg); err != nil {
+			log.Fatalf("Failed to create JetStream stream %q: %v", jsCfg.Name, err)
+		}
+	} else {
+		log.Printf("Stream %q already exists", jsCfg.Name)
 	}
 
-	_, streamError := js.CreateStream(ctx, jetstreamCfg)
-	if streamError != nil {
-		log.Fatalf("Failed to create JetStream stream: %v", streamError)
+	t := transformer.NewBinanceTransformer(cfg.Symbols)
+	pub, err := publisher.NewNatsPublisher(js, t)
+	if err != nil {
+		log.Fatalf("Failed to create NATS publisher: %v", err)
 	}
 
-	t := transformer.NewBinanceTransformer()
-	pub := publisher.NewNatsPublisher(js, t)
+	go func() {
+		log.Println("Starting WebSocket client...")
+		StartClient(ctx, webhookURL, pub)
+		log.Println("WebSocket client goroutine exited")
+	}()
 
-	
-go StartClient(ctx, *webhookUrl, pub)
+	log.Println("Service started. Press Ctrl+C to exit.")
 
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
+	<-ctx.Done()
+	log.Println("Shutdown signal received, cancelling context...")
 
-	log.Println("WebSocket client started. Press Ctrl+C to exit.")
-	
-	<-interrupt
-
-	log.Println("Shutdown signal received, telling services to stop.")
-    cancel()
 	time.Sleep(1 * time.Second)
-    log.Println("Application exited.")
+	log.Println("Application exited.")
+}
+
+func buildStreamSuffix(symbols []string) string {
+	parts := make([]string, len(symbols))
+	for i, s := range symbols {
+		parts[i] = strings.ToLower(s) + "@trade"
+	}
+	return strings.Join(parts, "/")
 }
