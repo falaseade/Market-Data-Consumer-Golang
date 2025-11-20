@@ -16,7 +16,7 @@ func SetupJetstreamConfig()(jetstream.StreamConfig, error){
 	if streamName == "" {
 		return jetstream.StreamConfig{}, errors.New("env var JS_STREAM_NAME is required")
 	}
-	streamSubject := os.Getenv("JS_STREAM_SUBJECTS")
+	streamSubject := os.Getenv("JS_STREAM_SUBJECTS") + os.Getenv("SOURCE")
 	if streamSubject == "" {
 		return jetstream.StreamConfig{}, errors.New("env var JS_STREAM_SUBJECT is required")
 	}
