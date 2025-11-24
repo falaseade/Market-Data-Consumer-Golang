@@ -46,7 +46,9 @@ func main() {
 	}
 	defer func() {
 		log.Println("Draining NATS connection...")
-		nc.Drain()
+		if err := nc.Drain(); err != nil {
+			log.Printf("Error draining NATS connection: %v", err)
+		}
 	}()
 
 	js, err := jetstream.New(nc)
@@ -54,10 +56,17 @@ func main() {
 		log.Fatalf("Error creating JetStream context: %v", err)
 	}
 
-	jsCfg, err := config.SetupJetstreamConfig()
+	loadCfg, err := config.LoadJetStreamConfigFromEnv()
 	if err != nil {
 		log.Fatalf("Failed to load JetStream configuration: %v", err)
 	}
+
+	jsCfg, err := loadCfg.ToStreamConfig()
+	if err != nil {
+		log.Fatalf("Failed to convert JetStream configuration: %v", err)
+	}	
+
+	
 	log.Printf("Ensuring JetStream stream %q exists", jsCfg.Name)
 
 	if _, err := js.Stream(ctx, jsCfg.Name); err != nil {

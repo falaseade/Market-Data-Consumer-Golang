@@ -56,7 +56,7 @@ func (p *NatsPublisher) Publish(ctx context.Context, payload []byte) error {
 		return nil
 	}
 
-	subject := os.Getenv("STREAM_SUBJECT") + os.Getenv("SOURCE")
+	subject := fmt.Sprintf("%s.%s", os.Getenv("STREAM_SUBJECT"), evt.Symbol)
 
 	msg, err := json.Marshal(evt)
 	if err != nil {
